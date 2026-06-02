@@ -1,11 +1,12 @@
 name: Release
 
 # One workflow to (1) tag the branch and publish a GitHub Release for the Go
-# module, and (2) build the docs site and deploy it to Cloudflare Pages.
+# module, and (2) build the docs site and deploy it to the "lit" Cloudflare
+# Worker (static assets) that serves https://lit.tracewayapp.com.
 #
 # Run it manually from the Actions tab ("Release" -> "Run workflow") and enter
 # the new version (e.g. 2.1.0). Required repository secrets:
-#   - CLOUDFLARE_API_TOKEN   (Pages: Edit permission)
+#   - CLOUDFLARE_API_TOKEN   (Workers Scripts: Edit — a Pages-only token will NOT work)
 #   - CLOUDFLARE_ACCOUNT_ID
 # GITHUB_TOKEN is provided automatically.
 
@@ -29,12 +30,6 @@ permissions:
 concurrency:
   group: release
   cancel-in-progress: false
-
-env:
-  # Cloudflare Pages project that serves https://lit.tracewayapp.com
-  # NOTE: this is the Pages *project name* (slug), NOT the domain. Update it to
-  # match the project in your Cloudflare dashboard if it differs.
-  CF_PAGES_PROJECT: lit
 
 jobs:
   release:
@@ -102,7 +97,7 @@ jobs:
             "github.com/tracewayapp/lit/v2@${{ steps.version.outputs.tag }}" || true
 
   deploy-docs:
-    name: Build & deploy docs to Cloudflare Pages
+    name: Build & deploy docs to the lit Worker
     needs: release
     runs-on: ubuntu-latest
     steps:
@@ -122,9 +117,12 @@ jobs:
       - name: Build docs (static export -> docs/out)
         run: cd docs && npm run build
 
-      - name: Deploy to Cloudflare Pages
+      # Deploys the static export as a Workers Static Assets site to the existing
+      # "lit" Worker (config: docs/wrangler.toml). Custom domain is preserved.
+      - name: Deploy docs to the lit Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs/out --project-name=${{ env.CF_PAGES_PROJECT }} --branch=main
+          workingDirectory: docs
+          command: deploy

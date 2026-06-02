@@ -1,0 +1,10 @@
+name = "lit"
+compatibility_date = "2024-11-01"
+
+# Static-assets-only Worker: Cloudflare serves the Nextra static export
+# (docs/out) directly at lit.tracewayapp.com — there is no Worker script.
+# The custom domain/routes are managed in the Cloudflare dashboard and are left
+# untouched by `wrangler deploy` (no `routes` declared here).
+[assets]
+directory = "./out"
+not_found_handling = "404-page"
