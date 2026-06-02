@@ -27,6 +27,11 @@ func TestParseNamedQuery(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "SELECT * FROM users WHERE id = ?", q)
 		assert.Equal(t, []any{1}, args)
+
+		q, args, err = ParseNamedQuery(DuckDB, "SELECT * FROM users WHERE id = :id", params)
+		require.NoError(t, err)
+		assert.Equal(t, "SELECT * FROM users WHERE id = ?", q)
+		assert.Equal(t, []any{1}, args)
 	})
 
 	t.Run("multiple params", func(t *testing.T) {
@@ -226,6 +231,17 @@ func TestParseNamedQueryForModel(t *testing.T) {
 		assert.Equal(t, []any{1}, args)
 	})
 
+	t.Run("DuckDB", func(t *testing.T) {
+		delete(StructToFieldMap, reflect.TypeFor[TestUser]())
+		RegisterModel[TestUser](DuckDB)
+
+		q, args, err := ParseNamedQueryForModel[TestUser](
+			"SELECT * FROM users WHERE id = :id", map[string]any{"id": 1})
+		require.NoError(t, err)
+		assert.Equal(t, "SELECT * FROM users WHERE id = ?", q)
+		assert.Equal(t, []any{1}, args)
+	})
+
 	t.Run("unregistered model", func(t *testing.T) {
 		type Unregistered struct{ Id int }
 		delete(StructToFieldMap, reflect.TypeFor[Unregistered]())
@@ -293,6 +309,31 @@ func TestSelectNamed(t *testing.T) {
 	t.Run("SQLite", func(t *testing.T) {
 		delete(StructToFieldMap, reflect.TypeFor[TestUser]())
 		RegisterModel[TestUser](SQLite)
+
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close()
+
+		rows := sqlmock.NewRows([]string{"id", "first_name", "last_name", "email"}).
+			AddRow(1, "John", "Doe", "john@example.com")
+
+		mock.ExpectQuery("SELECT \\* FROM test_users WHERE last_name = \\?").
+			WithArgs("Doe").
+			WillReturnRows(rows)
+
+		users, err := SelectNamed[TestUser](db,
+			"SELECT * FROM test_users WHERE last_name = :last_name",
+			map[string]any{"last_name": "Doe"})
+		require.NoError(t, err)
+		assert.Len(t, users, 1)
+		assert.Equal(t, "John", users[0].FirstName)
+
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("DuckDB", func(t *testing.T) {
+		delete(StructToFieldMap, reflect.TypeFor[TestUser]())
+		RegisterModel[TestUser](DuckDB)
 
 		db, mock, err := sqlmock.New()
 		require.NoError(t, err)
@@ -409,6 +450,23 @@ func TestDeleteNamed(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		err = DeleteNamed(SQLite, db,
+			"DELETE FROM test_users WHERE id = :id",
+			map[string]any{"id": 1})
+		require.NoError(t, err)
+
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("DuckDB", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close()
+
+		mock.ExpectExec("DELETE FROM test_users WHERE id = \\?").
+			WithArgs(1).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		err = DeleteNamed(DuckDB, db,
 			"DELETE FROM test_users WHERE id = :id",
 			map[string]any{"id": 1})
 		require.NoError(t, err)

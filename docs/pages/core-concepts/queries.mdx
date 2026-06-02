@@ -72,7 +72,7 @@ func SelectNamed[T any](ex Executor, query string, params map[string]any) ([]*T,
 ```
 
 ```go
-// This query works on PostgreSQL, MySQL, and SQLite — no changes needed
+// This query works on PostgreSQL, MySQL, SQLite, and DuckDB — no changes needed
 users, err := lit.SelectNamed[User](db,
     "SELECT * FROM users WHERE last_name = :last_name AND email = :email",
     lit.P{"last_name": "Doe", "email": "john@example.com"})

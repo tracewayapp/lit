@@ -14,7 +14,7 @@ func RegisterModel[T any](driver Driver)
 
 **Parameters:**
 
-- `driver`: Database driver (`lit.PostgreSQL`, `lit.MySQL`, `lit.SQLite`, or a custom driver)
+- `driver`: Database driver (`lit.PostgreSQL`, `lit.MySQL`, `lit.SQLite`, `lit.DuckDB`, or a custom driver)
 
 **Example:**
 
@@ -32,7 +32,7 @@ func RegisterDriver(driver Driver)
 
 **Parameters:**
 
-- `driver`: Database driver (`lit.PostgreSQL`, `lit.MySQL`, `lit.SQLite`, or a custom driver)
+- `driver`: Database driver (`lit.PostgreSQL`, `lit.MySQL`, `lit.SQLite`, `lit.DuckDB`, or a custom driver)
 
 **Example:**
 
@@ -411,7 +411,7 @@ func ParseNamedQuery(driver Driver, query string, params map[string]any) (string
 
 **Parameters:**
 
-- `driver`: Any `Driver` implementation (`lit.PostgreSQL`, `lit.MySQL`, `lit.SQLite`, or a custom driver)
+- `driver`: Any `Driver` implementation (`lit.PostgreSQL`, `lit.MySQL`, `lit.SQLite`, `lit.DuckDB`, or a custom driver)
 - `query`: SQL query with `:name` placeholders
 - `params`: Map of parameter names to values
 
@@ -536,7 +536,7 @@ users, err := lit.SelectNamed[User](db,
 
 ### Driver
 
-Interface that database drivers must implement. lit provides three built-in drivers: `lit.PostgreSQL`, `lit.MySQL`, and `lit.SQLite`. You can also implement your own — see [Custom Drivers](/guides/custom-drivers).
+Interface that database drivers must implement. lit provides four built-in drivers: `lit.PostgreSQL`, `lit.MySQL`, `lit.SQLite`, and `lit.DuckDB`. You can also implement your own — see [Custom Drivers](/guides/custom-drivers).
 
 ```go
 type Driver interface {
@@ -565,6 +565,7 @@ type InsertUpdateQueryGenerator interface {
 var PostgreSQL Driver = &pgDriver{}
 var MySQL      Driver = &mysqlDriver{}
 var SQLite     Driver = &sqliteDriver{}
+var DuckDB     Driver = &duckdbDriver{}
 ```
 
 ### Executor

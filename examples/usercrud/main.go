@@ -13,6 +13,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/marcboeker/go-duckdb/v2"
 )
 
 func main() {
@@ -28,6 +29,8 @@ func main() {
 
 	if driver == "mysql" {
 		lit.RegisterModel[models.User](lit.MySQL)
+	} else if driver == "duckdb" {
+		lit.RegisterModel[models.User](lit.DuckDB)
 	} else {
 		lit.RegisterModel[models.User](lit.PostgreSQL)
 	}

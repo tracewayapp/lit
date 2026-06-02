@@ -16,9 +16,9 @@ The project is currently used in a **production environment**.
 
 ## Key Features
 
-- **Unified API**: The `lit` package provides a single API for PostgreSQL, MySQL, SQLite, and custom database drivers, with driver-specific optimizations handled internally.
+- **Unified API**: The `lit` package provides a single API for PostgreSQL, MySQL, SQLite, DuckDB, and custom database drivers, with driver-specific optimizations handled internally.
 - **Lightweight Projections**: The biggest advantage of `lit` is its ability to load DTOs and projections with minimal effort. Regardless of your table structure, mapping a query result to a Go struct is straightforward and clean.
-- **MySQL, PostgreSQL, and SQLite Support**: Register your models with the appropriate driver and the library handles query generation and driver-specific optimizations.
+- **MySQL, PostgreSQL, SQLite, and DuckDB Support**: Register your models with the appropriate driver and the library handles query generation and driver-specific optimizations.
 - **Generic CRUD Operations**: Automatic generation of `INSERT` and `UPDATE` queries for registered types.
 - **Works with DB and Tx**: All operations accept both `*sql.DB` and `*sql.Tx` via the `Executor` interface.
 - **Minimal Dependencies**: Keeps your project slim and focused.
@@ -60,10 +60,14 @@ func init() {
     lit.RegisterModel[User](lit.MySQL)
     // OR Register for SQLite
     lit.RegisterModel[User](lit.SQLite)
+    // OR Register for DuckDB
+    lit.RegisterModel[User](lit.DuckDB)
 }
 ```
 
-**Placeholder Syntax:** PostgreSQL uses `$1, $2, $3...` placeholders while MySQL uses `?` placeholders. The examples below use PostgreSQL syntax.
+**Placeholder Syntax:** PostgreSQL uses `$1, $2, $3...` placeholders while MySQL, SQLite, and DuckDB use `?` placeholders. The examples below use PostgreSQL syntax.
+
+> **DuckDB note:** DuckDB uses `?` placeholders like SQLite/MySQL, but its Go driver does not support `LastInsertId()`. lit reads generated ids back with a `RETURNING id` clause (as it does for PostgreSQL), so auto-increment `id` columns should be sequence-backed (`DEFAULT nextval(...)`).
 
 ### 2. Basic Usage
 
@@ -146,7 +150,7 @@ func example(db *sql.DB) {
 
 ### 5. Named Parameters
 
-Write portable queries with `:name` placeholders. lit automatically converts them to the correct driver syntax (`$1` for PostgreSQL, `?` for MySQL/SQLite):
+Write portable queries with `:name` placeholders. lit automatically converts them to the correct driver syntax (`$1` for PostgreSQL, `?` for MySQL/SQLite/DuckDB):
 
 ```go
 // Use lit.P as a shorthand for map[string]any

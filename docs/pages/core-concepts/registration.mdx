@@ -32,7 +32,7 @@ func init() {
 You can register default driver globally. This driver will be used for all models registered without specifying a driver.
 
 ```go
-lit.RegisterDriver(lit.PostgreSQL) // or lit.MySQL, lit.SQLite
+lit.RegisterDriver(lit.PostgreSQL) // or lit.MySQL, lit.SQLite, lit.DuckDB
 lit.RegisterModel[User]() // uses PostgreSQL driver
 ```
 
@@ -43,7 +43,7 @@ lit.RegisterDriver(lit.PostgreSQL)
 lit.RegisterModel[User](lit.MySQL) // uses MySQL driver
 ```
 
-You can also pass a [custom driver](/guides/custom-drivers) to support databases beyond the built-in three.
+You can also pass a [custom driver](/guides/custom-drivers) to support databases beyond the built-in four.
 
 ## What Gets Cached
 
@@ -57,7 +57,7 @@ When you call `RegisterModel`, lit creates a `FieldMap` containing:
 | `InsertQuery`   | Pre-built INSERT statement                            |
 | `UpdateQuery`   | Pre-built UPDATE statement (without WHERE clause)     |
 | `InsertColumns` | Columns used in INSERT (excludes auto-increment id)   |
-| `Driver`        | Database driver (PostgreSQL, MySQL, SQLite, or custom) |
+| `Driver`        | Database driver (PostgreSQL, MySQL, SQLite, DuckDB, or custom) |
 
 ## Default Naming Convention
 

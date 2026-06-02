@@ -40,6 +40,7 @@ func TestDriverName(t *testing.T) {
 	assert.Equal(t, "PostgreSQL", PostgreSQL.Name())
 	assert.Equal(t, "MySQL", MySQL.Name())
 	assert.Equal(t, "SQLite", SQLite.Name())
+	assert.Equal(t, "DuckDB", DuckDB.Name())
 }
 
 func TestRegisterDriver(t *testing.T) {
@@ -1895,6 +1896,549 @@ func TestUpdate_WithReservedKeywords_SQLite(t *testing.T) {
 func TestSelect_WithReservedKeywords_SQLite(t *testing.T) {
 	delete(StructToFieldMap, reflect.TypeFor[TestReservedKeywordModel]())
 	RegisterModel[TestReservedKeywordModel](SQLite)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Return rows with reserved keyword column names
+	rows := sqlmock.NewRows([]string{"id", "order", "group", "name"}).
+		AddRow(1, 10, "GroupA", "Name1").
+		AddRow(2, 20, "GroupB", "Name2")
+
+	mock.ExpectQuery("SELECT \\* FROM test_reserved_keyword_models").WillReturnRows(rows)
+
+	models, err := Select[TestReservedKeywordModel](db, "SELECT * FROM test_reserved_keyword_models")
+	require.NoError(t, err)
+	assert.Len(t, models, 2)
+
+	assert.Equal(t, 1, models[0].Id)
+	assert.Equal(t, 10, models[0].Order)
+	assert.Equal(t, "GroupA", models[0].Group)
+	assert.Equal(t, "Name1", models[0].Name)
+
+	assert.Equal(t, 2, models[1].Id)
+	assert.Equal(t, 20, models[1].Order)
+	assert.Equal(t, "GroupB", models[1].Group)
+	assert.Equal(t, "Name2", models[1].Name)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== DuckDB Tests ====================
+
+func TestRegisterModel_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUser]())
+
+	RegisterModel[TestUser](DuckDB)
+
+	fieldMap, err := GetFieldMap(reflect.TypeFor[TestUser]())
+	require.NoError(t, err)
+	require.NotNil(t, fieldMap)
+
+	assert.True(t, fieldMap.HasIntId)
+	assert.Equal(t, DuckDB, fieldMap.Driver)
+	assert.Contains(t, fieldMap.ColumnKeys, "id")
+	assert.Contains(t, fieldMap.ColumnKeys, "first_name")
+	assert.Contains(t, fieldMap.ColumnKeys, "last_name")
+	assert.Contains(t, fieldMap.ColumnKeys, "email")
+
+	// DuckDB uses ? placeholders (no $N) but reads the generated id back via RETURNING.
+	assert.Contains(t, fieldMap.InsertQuery, "RETURNING id")
+	assert.Contains(t, fieldMap.InsertQuery, "?")
+	assert.NotContains(t, fieldMap.InsertQuery, "$")
+}
+
+func TestDuckdbInsertUpdateQueryGenerator_GenerateInsertQuery(t *testing.T) {
+	gen := duckdbDriver{}
+
+	tests := []struct {
+		name             string
+		tableName        string
+		columnKeys       []string
+		hasIntId         bool
+		expectedContains []string
+		expectedColumns  []string
+	}{
+		{
+			name:             "with int id",
+			tableName:        "users",
+			columnKeys:       []string{"id", "first_name", "last_name"},
+			hasIntId:         true,
+			expectedContains: []string{"INSERT INTO", "users", "DEFAULT", "?", "RETURNING id"},
+			expectedColumns:  []string{"first_name", "last_name"},
+		},
+		{
+			name:             "without int id",
+			tableName:        "products",
+			columnKeys:       []string{"product_id", "name", "price"},
+			hasIntId:         false,
+			expectedContains: []string{"INSERT INTO", "products", "?", "RETURNING id"},
+			expectedColumns:  []string{"product_id", "name", "price"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			query, columns := gen.GenerateInsertQuery(tt.tableName, tt.columnKeys, tt.hasIntId)
+
+			for _, s := range tt.expectedContains {
+				assert.Contains(t, query, s)
+			}
+			assert.Contains(t, query, "RETURNING id")
+			assert.NotContains(t, query, "$")
+			assert.Equal(t, tt.expectedColumns, columns)
+		})
+	}
+}
+
+func TestDuckdbInsertUpdateQueryGenerator_GenerateUpdateQuery(t *testing.T) {
+	gen := duckdbDriver{}
+
+	columnKeys := []string{"id", "first_name", "last_name"}
+	query := gen.GenerateUpdateQuery("users", columnKeys)
+
+	assert.Contains(t, query, "UPDATE users")
+	assert.Contains(t, query, "SET")
+	assert.Contains(t, query, "id = ?")
+	assert.Contains(t, query, "first_name = ?")
+	assert.Contains(t, query, "last_name = ?")
+	assert.Contains(t, query, "WHERE")
+	assert.NotContains(t, query, "$")
+}
+
+func TestSelect_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUser]())
+	RegisterModel[TestUser](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	rows := sqlmock.NewRows([]string{"id", "first_name", "last_name", "email"}).
+		AddRow(1, "John", "Doe", "john@example.com").
+		AddRow(2, "Jane", "Smith", "jane@example.com")
+
+	mock.ExpectQuery("SELECT \\* FROM test_users").WillReturnRows(rows)
+
+	users, err := Select[TestUser](db, "SELECT * FROM test_users")
+	require.NoError(t, err)
+	assert.Len(t, users, 2)
+	assert.Equal(t, "John", users[0].FirstName)
+	assert.Equal(t, "Jane", users[1].FirstName)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSelectSingle_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUser]())
+	RegisterModel[TestUser](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	rows := sqlmock.NewRows([]string{"id", "first_name", "last_name", "email"}).
+		AddRow(1, "John", "Doe", "john@example.com")
+
+	mock.ExpectQuery("SELECT \\* FROM test_users WHERE id = \\?").
+		WithArgs(1).
+		WillReturnRows(rows)
+
+	user, err := SelectSingle[TestUser](db, "SELECT * FROM test_users WHERE id = ?", 1)
+	require.NoError(t, err)
+	require.NotNil(t, user)
+	assert.Equal(t, "John", user.FirstName)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSelectSingle_NoResults_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUser]())
+	RegisterModel[TestUser](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	rows := sqlmock.NewRows([]string{"id", "first_name", "last_name", "email"})
+
+	mock.ExpectQuery("SELECT \\* FROM test_users WHERE id = \\?").
+		WithArgs(999).
+		WillReturnRows(rows)
+
+	user, err := SelectSingle[TestUser](db, "SELECT * FROM test_users WHERE id = ?", 999)
+	require.NoError(t, err)
+	assert.Nil(t, user)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInsert_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUser]())
+	RegisterModel[TestUser](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	// DuckDB reads the generated id back via RETURNING + QueryRow (Postgres-style).
+	rows := sqlmock.NewRows([]string{"id"}).AddRow(42)
+
+	mock.ExpectQuery("INSERT INTO test_users").
+		WithArgs("John", "Doe", "john@example.com").
+		WillReturnRows(rows)
+
+	user := &TestUser{FirstName: "John", LastName: "Doe", Email: "john@example.com"}
+	id, err := Insert[TestUser](db, user)
+	require.NoError(t, err)
+	assert.Equal(t, 42, id)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdate_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUser]())
+	RegisterModel[TestUser](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec("UPDATE test_users SET").
+		WithArgs(1, "John", "Doe", "john@example.com", 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	user := &TestUser{Id: 1, FirstName: "John", LastName: "Doe", Email: "john@example.com"}
+	err = Update[TestUser](db, user, "id = ?", 1)
+	require.NoError(t, err)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDelete_DuckDB(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec("DELETE FROM test_users WHERE id = \\?").
+		WithArgs(1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = Delete(db, "DELETE FROM test_users WHERE id = ?", 1)
+	require.NoError(t, err)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestExecutorWithTransaction_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUser]())
+	RegisterModel[TestUser](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+
+	rows := sqlmock.NewRows([]string{"id", "first_name", "last_name", "email"}).
+		AddRow(1, "John", "Doe", "john@example.com")
+
+	mock.ExpectQuery("SELECT \\* FROM test_users").WillReturnRows(rows)
+	mock.ExpectCommit()
+
+	tx, err := db.Begin()
+	require.NoError(t, err)
+
+	users, err := Select[TestUser](tx, "SELECT * FROM test_users")
+	require.NoError(t, err)
+	assert.Len(t, users, 1)
+
+	err = tx.Commit()
+	require.NoError(t, err)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInsertUuid_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestProduct]())
+	RegisterModel[TestProduct](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec("INSERT INTO test_products").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	product := &TestProduct{Name: "Widget", Price: 100}
+	uuid, err := InsertUuid[TestProduct](db, product)
+	require.NoError(t, err)
+	assert.NotEmpty(t, uuid)
+	assert.Equal(t, uuid, product.Id)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInsertExistingUuid_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestProduct]())
+	RegisterModel[TestProduct](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec("INSERT INTO test_products").
+		WithArgs("existing-uuid-123", "Widget", 100).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	product := &TestProduct{Id: "existing-uuid-123", Name: "Widget", Price: 100}
+	err = InsertExistingUuid[TestProduct](db, product)
+	require.NoError(t, err)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInsert_WithLitTags_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUserWithTags]())
+	RegisterModel[TestUserWithTags](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	rows := sqlmock.NewRows([]string{"id"}).AddRow(42)
+
+	// Expect INSERT with custom column names from lit tags
+	mock.ExpectQuery("INSERT INTO test_user_with_tagss \\(id,first_name,surname,email_address\\)").
+		WithArgs("John", "Doe", "john@example.com").
+		WillReturnRows(rows)
+
+	user := &TestUserWithTags{FirstName: "John", LastName: "Doe", Email: "john@example.com"}
+	id, err := Insert[TestUserWithTags](db, user)
+	require.NoError(t, err)
+	assert.Equal(t, 42, id)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdate_WithLitTags_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUserWithTags]())
+	RegisterModel[TestUserWithTags](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Expect UPDATE with custom column names from lit tags
+	mock.ExpectExec("UPDATE test_user_with_tagss SET id = \\?,first_name = \\?,surname = \\?,email_address = \\? WHERE").
+		WithArgs(1, "John", "Doe", "john@example.com", 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	user := &TestUserWithTags{Id: 1, FirstName: "John", LastName: "Doe", Email: "john@example.com"}
+	err = Update[TestUserWithTags](db, user, "id = ?", 1)
+	require.NoError(t, err)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSelect_WithLitTags_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestUserWithTags]())
+	RegisterModel[TestUserWithTags](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Return rows with custom column names (as they would be in the database)
+	rows := sqlmock.NewRows([]string{"id", "first_name", "surname", "email_address"}).
+		AddRow(1, "John", "Doe", "john@example.com").
+		AddRow(2, "Jane", "Smith", "jane@example.com")
+
+	mock.ExpectQuery("SELECT \\* FROM test_user_with_tagss").WillReturnRows(rows)
+
+	users, err := Select[TestUserWithTags](db, "SELECT * FROM test_user_with_tagss")
+	require.NoError(t, err)
+	assert.Len(t, users, 2)
+
+	// Verify data is correctly mapped to struct fields
+	assert.Equal(t, 1, users[0].Id)
+	assert.Equal(t, "John", users[0].FirstName)
+	assert.Equal(t, "Doe", users[0].LastName)
+	assert.Equal(t, "john@example.com", users[0].Email)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestJoinStringForIn_DuckDB(t *testing.T) {
+	type DuckDBUser struct {
+		Id   int
+		Name string
+	}
+	delete(StructToFieldMap, reflect.TypeFor[DuckDBUser]())
+	RegisterModel[DuckDBUser](DuckDB)
+
+	tests := []struct {
+		name     string
+		offset   int
+		params   []string
+		expected string
+	}{
+		{"empty", 0, []string{}, ""},
+		{"ignores offset", 5, []string{"a", "b"}, "?,?"},
+		{"multiple", 0, []string{"x", "y", "z"}, "?,?,?"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := JoinStringForIn[DuckDBUser](tt.offset, tt.params)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestJoinStringForInWithDriver_DuckDB(t *testing.T) {
+	assert.Equal(t, "?,?", JoinStringForInWithDriver(DuckDB, 0, 2))
+	assert.Equal(t, "?,?,?", JoinStringForInWithDriver(DuckDB, 999, 3))
+}
+
+func TestDuckdbEscapeReserved(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Non-reserved names should pass through unchanged
+		{"non-reserved name", "users", "users"},
+		{"non-reserved name with underscore", "user_profiles", "user_profiles"},
+		{"non-reserved name camelCase", "firstName", "firstName"},
+
+		// Reserved keywords should be quoted with double quotes (case-insensitive)
+		{"reserved keyword uppercase", "SELECT", `"SELECT"`},
+		{"reserved keyword lowercase", "select", `"select"`},
+		{"reserved keyword mixed case", "Select", `"Select"`},
+
+		// Common reserved keywords
+		{"reserved ORDER", "ORDER", `"ORDER"`},
+		{"reserved order lowercase", "order", `"order"`},
+		{"reserved GROUP", "GROUP", `"GROUP"`},
+		{"reserved TABLE", "TABLE", `"TABLE"`},
+
+		// Edge cases
+		{"empty string", "", ""},
+		{"single char non-reserved", "x", "x"},
+		{"reserved AS", "AS", `"AS"`},
+		{"reserved FROM", "FROM", `"FROM"`},
+		{"reserved WHERE", "WHERE", `"WHERE"`},
+
+		// DuckDB-specific reserved keywords
+		{"reserved QUALIFY", "QUALIFY", `"QUALIFY"`},
+		{"reserved PIVOT", "PIVOT", `"PIVOT"`},
+		{"reserved DESCRIBE", "DESCRIBE", `"DESCRIBE"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := duckdbEscapeReserved(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDuckdbInsertUpdateQueryGenerator_ReservedKeywords(t *testing.T) {
+	gen := duckdbDriver{}
+
+	t.Run("INSERT with reserved keyword columns", func(t *testing.T) {
+		columnKeys := []string{"id", "order", "group", "name"}
+		query, columns := gen.GenerateInsertQuery("test_table", columnKeys, true)
+
+		// Reserved keywords should be quoted with double quotes
+		assert.Contains(t, query, `"order"`)
+		assert.Contains(t, query, `"group"`)
+		// "name" is not a DuckDB reserved keyword
+		assert.Contains(t, query, "name")
+		// Non-reserved should not be quoted
+		assert.Contains(t, query, "id")
+		// The int id column uses DEFAULT and is read back via RETURNING
+		assert.Contains(t, query, "DEFAULT")
+		assert.Contains(t, query, "RETURNING id")
+		assert.Equal(t, []string{"order", "group", "name"}, columns)
+	})
+
+	t.Run("INSERT with reserved keyword table name", func(t *testing.T) {
+		columnKeys := []string{"id", "value"}
+		query, _ := gen.GenerateInsertQuery("table", columnKeys, true)
+
+		// Reserved table name should be quoted with double quotes
+		assert.Contains(t, query, `INSERT INTO "table"`)
+	})
+
+	t.Run("UPDATE with reserved keyword columns", func(t *testing.T) {
+		columnKeys := []string{"id", "order", "group", "name"}
+		query := gen.GenerateUpdateQuery("test_table", columnKeys)
+
+		// Reserved keywords should be quoted with double quotes
+		assert.Contains(t, query, `"order" = ?`)
+		assert.Contains(t, query, `"group" = ?`)
+		// Non-reserved should not be quoted
+		assert.Contains(t, query, "id = ?")
+	})
+
+	t.Run("UPDATE with reserved keyword table name", func(t *testing.T) {
+		columnKeys := []string{"id", "value"}
+		query := gen.GenerateUpdateQuery("order", columnKeys)
+
+		// Reserved table name should be quoted with double quotes
+		assert.Contains(t, query, `UPDATE "order"`)
+	})
+}
+
+func TestInsert_WithReservedKeywords_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestReservedKeywordModel]())
+	RegisterModel[TestReservedKeywordModel](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	rows := sqlmock.NewRows([]string{"id"}).AddRow(42)
+
+	// "order" and "group" are DuckDB reserved keywords, "name" is not
+	mock.ExpectQuery(`INSERT INTO test_reserved_keyword_models \(id,"order","group",name\)`).
+		WithArgs(10, "TestGroup", "TestName").
+		WillReturnRows(rows)
+
+	model := &TestReservedKeywordModel{Order: 10, Group: "TestGroup", Name: "TestName"}
+	id, err := Insert[TestReservedKeywordModel](db, model)
+	require.NoError(t, err)
+	assert.Equal(t, 42, id)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdate_WithReservedKeywords_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestReservedKeywordModel]())
+	RegisterModel[TestReservedKeywordModel](DuckDB)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	// "order" and "group" are DuckDB reserved keywords, "name" is not
+	mock.ExpectExec(`UPDATE test_reserved_keyword_models SET id = \?,\"order\" = \?,\"group\" = \?,name = \? WHERE`).
+		WithArgs(1, 10, "TestGroup", "TestName", 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	model := &TestReservedKeywordModel{Id: 1, Order: 10, Group: "TestGroup", Name: "TestName"}
+	err = Update[TestReservedKeywordModel](db, model, "id = ?", 1)
+	require.NoError(t, err)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSelect_WithReservedKeywords_DuckDB(t *testing.T) {
+	delete(StructToFieldMap, reflect.TypeFor[TestReservedKeywordModel]())
+	RegisterModel[TestReservedKeywordModel](DuckDB)
 
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

@@ -4,7 +4,7 @@ lit's `Driver` type is an interface, which means you can implement support for a
 
 ## Why Custom Drivers?
 
-lit ships with three built-in drivers — `lit.PostgreSQL`, `lit.MySQL`, and `lit.SQLite`. If you need to target a different database (e.g., CockroachDB, MSSQL, or a proprietary engine), you can create your own `Driver` implementation and use it everywhere a built-in driver would go.
+lit ships with four built-in drivers — `lit.PostgreSQL`, `lit.MySQL`, `lit.SQLite`, and `lit.DuckDB`. If you need to target a different database (e.g., CockroachDB, MSSQL, or a proprietary engine), you can create your own `Driver` implementation and use it everywhere a built-in driver would go.
 
 ## The Driver Interface
 
@@ -203,7 +203,8 @@ All lit functions (`Select`, `Insert`, `Update`, named queries, etc.) work with 
 
 ## Tips
 
-- **Start from a built-in driver.** The source files `postgres.go`, `mysql.go`, and `sqlite.go` are short and self-contained. Copy the one closest to your target database and modify it.
-- **`$N` vs `?` placeholders.** If your database uses positional `$1, $2` placeholders (like PostgreSQL/CockroachDB), you need a real `RenumberWhereClause` and offset-aware `JoinStringForIn`. If it uses `?` (like MySQL/SQLite), both can be trivial.
+- **Start from a built-in driver.** The source files `postgres.go`, `mysql.go`, `sqlite.go`, and `duckdb.go` are short and self-contained. Copy the one closest to your target database and modify it. `duckdb.go` is a useful hybrid example: it uses `?` placeholders (like SQLite) yet reads generated ids via `RETURNING id` + `QueryRow` (like PostgreSQL).
+- **`$N` vs `?` placeholders.** If your database uses positional `$1, $2` placeholders (like PostgreSQL/CockroachDB), you need a real `RenumberWhereClause` and offset-aware `JoinStringForIn`. If it uses `?` (like MySQL/SQLite/DuckDB), both can be trivial.
+- **`LastInsertId()` vs `RETURNING`.** Some `?`-placeholder databases (e.g. DuckDB) still cannot use `Exec` + `LastInsertId()`; implement `InsertAndGetId` with `QueryRow` against a `RETURNING id` clause instead, as `duckdb.go` does.
 - **Backslash escaping.** Set `SupportsBackslashEscape()` to `true` only if your database treats `\` as an escape character inside string literals. This affects the named-parameter parser.
 - **Compile-time check.** Add a line like `var _ lit.Driver = (*myDriver)(nil)` to guarantee your struct satisfies the interface at compile time.

@@ -3,7 +3,7 @@
 ## Requirements
 
 - Go 1.21 or higher
-- A supported database (PostgreSQL, MySQL, or SQLite)
+- A supported database (PostgreSQL, MySQL, SQLite, or DuckDB)
 
 ## Install lit
 
@@ -37,6 +37,17 @@ go get github.com/go-sql-driver/mysql
 go get github.com/mattn/go-sqlite3
 ```
 
+### DuckDB
+
+```bash
+go get github.com/marcboeker/go-duckdb/v2
+```
+
+DuckDB uses `?` placeholders like SQLite, but its Go driver does not support
+`LastInsertId()` — lit reads generated ids back with a `RETURNING id` clause (like
+PostgreSQL), so auto-increment `id` columns should be sequence-backed
+(`DEFAULT nextval(...)`).
+
 You can also use a [custom driver](/guides/custom-drivers) to support databases not listed above.
 
 ## Verify Installation
@@ -58,7 +69,7 @@ type User struct {
 }
 
 func main() {
-    lit.RegisterModel[User](lit.PostgreSQL) // or lit.MySQL, lit.SQLite
+    lit.RegisterModel[User](lit.PostgreSQL) // or lit.MySQL, lit.SQLite, lit.DuckDB
     fmt.Println("lit installed successfully!")
 }
 ```
