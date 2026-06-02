@@ -1,0 +1,130 @@
+name: Release
+
+# One workflow to (1) tag the branch and publish a GitHub Release for the Go
+# module, and (2) build the docs site and deploy it to Cloudflare Pages.
+#
+# Run it manually from the Actions tab ("Release" -> "Run workflow") and enter
+# the new version (e.g. 2.1.0). Required repository secrets:
+#   - CLOUDFLARE_API_TOKEN   (Pages: Edit permission)
+#   - CLOUDFLARE_ACCOUNT_ID
+# GITHUB_TOKEN is provided automatically.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. 2.1.0 or v2.1.0 (must be v2.x.x to match the module path)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as a pre-release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# Never run two releases at once.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Cloudflare Pages project that serves https://lit.tracewayapp.com
+  # NOTE: this is the Pages *project name* (slug), NOT the domain. Update it to
+  # match the project in your Cloudflare dashboard if it differs.
+  CF_PAGES_PROJECT: lit
+
+jobs:
+  release:
+    name: Tag & GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for release-note generation
+
+      - name: Validate and normalize version
+        id: version
+        run: |
+          raw="${{ inputs.version }}"
+          ver="${raw#v}" # strip an optional leading "v"
+          if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version '$raw'. Use semver, e.g. 2.1.0 or v2.1.0."
+            exit 1
+          fi
+          tag="v$ver"
+          major="${ver%%.*}"
+          if [ "$major" != "2" ]; then
+            echo "::error::Module path is github.com/tracewayapp/lit/v2 — the tag must be v2.x.x (got $tag). Bumping the major version requires changing the module path first."
+            exit 1
+          fi
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "::error::Tag $tag already exists."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build, vet & test (release gate)
+        run: |
+          go build ./...
+          go vet ./...
+          go test ./...
+
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            ${{ inputs.prerelease == true && '--prerelease' || '' }}
+
+      - name: Warm the Go module proxy (best effort)
+        run: |
+          GOPROXY=proxy.golang.org go list -m \
+            "github.com/tracewayapp/lit/v2@${{ steps.version.outputs.tag }}" || true
+
+  deploy-docs:
+    name: Build & deploy docs to Cloudflare Pages
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }} # deploy the docs as of the released tag
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install dependencies
+        run: cd docs && npm ci
+
+      - name: Build docs (static export -> docs/out)
+        run: cd docs && npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy docs/out --project-name=${{ env.CF_PAGES_PROJECT }} --branch=main
