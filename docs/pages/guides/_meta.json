@@ -2,5 +2,6 @@
   "naming-strategies": "Table & Column Naming",
   "uuid-support": "UUID Support",
   "projections": "Projections & DTOs",
-  "custom-drivers": "Custom Drivers"
+  "custom-drivers": "Custom Drivers",
+  "ai-setup": "AI Agent Setup"
 }

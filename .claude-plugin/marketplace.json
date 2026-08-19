@@ -1,0 +1,14 @@
+{
+  "name": "lit",
+  "owner": {
+    "name": "Traceway",
+    "url": "https://github.com/tracewayapp"
+  },
+  "plugins": [
+    {
+      "name": "lit",
+      "source": "./",
+      "description": "Teaches AI agents to use the lit Go database library correctly: registration, queries, projections, writes, and the pitfalls to avoid."
+    }
+  ]
+}

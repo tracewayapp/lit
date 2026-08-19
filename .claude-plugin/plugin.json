@@ -1,0 +1,11 @@
+{
+  "name": "lit",
+  "description": "Teaches AI agents to use the lit Go database library correctly: registration, queries, projections, writes, and the pitfalls to avoid.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Traceway",
+    "url": "https://github.com/tracewayapp"
+  },
+  "homepage": "https://lit.tracewayapp.com",
+  "repository": "https://github.com/tracewayapp/lit"
+}

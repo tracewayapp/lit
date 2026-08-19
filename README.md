@@ -27,6 +27,17 @@ The project is currently used in a **production environment**.
 
 Documentation is available at https://lit.tracewayapp.com
 
+## AI Agent Setup
+
+lit ships a skill that teaches AI coding agents (Claude Code, Cursor, Codex, and similar) the full API and its pitfalls, so they write correct lit code in your project.
+
+- **Claude Code plugin**: `/plugin marketplace add tracewayapp/lit`, then `/plugin install lit@lit`
+- **Copy into your repo**: put [skills/lit/SKILL.md](skills/lit/SKILL.md) at `.claude/skills/lit/SKILL.md` in your project
+- **CLAUDE.md / AGENTS.md**: paste the condensed section from the [AI Agent Setup guide](https://lit.tracewayapp.com/guides/ai-setup)
+- **llms.txt**: a machine-readable API summary is served at https://lit.tracewayapp.com/llms.txt
+
+See the [AI Agent Setup guide](https://lit.tracewayapp.com/guides/ai-setup) for details.
+
 ## Usage Limitations
 
 - **ID Column Requirement**: For automatic `Insert` and `Update` operations, the library requires your tables to have an `id` column. It does not support tables without a primary `id` field for these specific automatic operations.

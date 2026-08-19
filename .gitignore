@@ -32,3 +32,5 @@ go.work.sum
 # .vscode/
 .DS_Store
 /docs/out
+# copied from the repo root by the docs build
+/docs/public/llms.txt

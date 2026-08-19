@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "Documentation for lit - A lightweight Go library for database operations",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "cp ../llms.txt public/llms.txt && next dev",
+    "build": "cp ../llms.txt public/llms.txt && next build",
     "start": "next start"
   },
   "dependencies": {

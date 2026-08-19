@@ -1,0 +1,76 @@
+# AI Agent Setup
+
+lit ships an agent skill: a single markdown guide that teaches AI coding agents the full lit API, the conventions that work well in production, and the pitfalls that cause runtime errors. Adding it to your project means Claude Code, Cursor, Codex, and similar tools write correct lit code instead of guessing at a generic ORM API.
+
+The skill lives in the repo at [`skills/lit/SKILL.md`](https://github.com/tracewayapp/lit/blob/main/skills/lit/SKILL.md). There are three ways to use it. Pick one.
+
+## Option 1: Install the Claude Code plugin
+
+The lit repo doubles as a Claude Code plugin marketplace. In Claude Code, run:
+
+```
+/plugin marketplace add tracewayapp/lit
+/plugin install lit@lit
+```
+
+Claude then loads the skill automatically whenever it works on lit code. Updates arrive when the plugin updates, so this is the lowest-maintenance option.
+
+## Option 2: Copy the skill into your project
+
+Vendor the skill file into your repo so it travels with the codebase and works for every contributor:
+
+```bash
+mkdir -p .claude/skills/lit
+curl -o .claude/skills/lit/SKILL.md \
+  https://raw.githubusercontent.com/tracewayapp/lit/main/skills/lit/SKILL.md
+```
+
+Claude Code picks up project skills from `.claude/skills/` automatically. For a personal install that covers all your projects, use `~/.claude/skills/lit/SKILL.md` instead.
+
+The file is plain markdown with a small frontmatter block, so it also works as a reference document for other agents. Point Cursor rules, Codex, or any tool that accepts context files at it.
+
+## Option 3: Add a section to CLAUDE.md or AGENTS.md
+
+If you prefer keeping everything in one instructions file, paste this condensed version into your project's `CLAUDE.md` or `AGENTS.md`. It covers the rules that matter most; the full skill has more depth.
+
+```markdown
+## lit (github.com/tracewayapp/lit/v2)
+
+Database access goes through lit. It maps rows to registered structs. You write the SQL.
+
+- Register every struct used with generic functions, including projection/aggregate
+  structs: `lit.RegisterModel[User](lit.PostgreSQL)` in an `init()` or a central
+  registration file. Unregistered structs fail at runtime.
+- Reads: `lit.Select[T](tx, query, args...)` and `lit.SelectSingle[T]`. Not found
+  returns `nil`, never `sql.ErrNoRows`. Every returned column must map to a struct
+  field, so alias computed columns: `COUNT(*) AS count` for a `Count` field.
+- Writes: `lit.Insert(tx, &e)` returns the new int id (assign it back to the struct).
+  `lit.InsertUuid` / `lit.InsertExistingUuid` handle string ids. Insert writes every
+  struct field, overriding DB defaults, so set `CreatedAt` etc. explicitly.
+- `lit.Update(tx, &e, "id = $1", id)` updates all columns and prepends WHERE itself.
+  Pass only the condition, with placeholders starting at $1 (lit renumbers them).
+  Partial updates use raw SQL via `lit.UpdateNative`.
+- Deletes are raw SQL: `lit.Delete(tx, query, args...)` or
+  `lit.DeleteNamed(driver, tx, query, lit.P{...})`. DeleteNamed takes the driver first.
+- Named params (`:name` + `lit.P{...}`) are portable across drivers. Positional
+  placeholders are `$1` on PostgreSQL and `?` on MySQL/SQLite/DuckDB. Named params
+  cannot expand slices for IN lists; use `lit.JoinForIn` (ints, guard empty slices)
+  or `lit.JoinStringForIn` (placeholder lists).
+- Naming: CamelCase fields become snake_case columns, table names get pluralized
+  (`User` -> `users`). Override with `lit:"column_name"` tags or a custom naming
+  strategy. Tables need an `id` column for Insert/Update.
+- lit has no context support, no RowsAffected, and no batch insert. For those, render
+  with `lit.ParseNamedQuery(driver, query, params)` and call database/sql directly.
+- lit never manages transactions. Repositories take `*sql.Tx` (or `lit.Executor`)
+  as the first parameter; a wrapper owns begin/commit/rollback.
+```
+
+A tip from projects already doing this: keep one file and symlink the other, so Claude Code and AGENTS.md-based tools read the same content:
+
+```bash
+ln -s CLAUDE.md AGENTS.md
+```
+
+## llms.txt
+
+The site also serves [llms.txt](/llms.txt), a compact machine-readable summary of the whole API. It suits tools that fetch documentation by URL, or you can paste its contents into any prompt.

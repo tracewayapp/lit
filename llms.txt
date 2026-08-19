@@ -1,6 +1,6 @@
 # lit
 
-> Lightweight Go library for PostgreSQL and MySQL database operations. Provides generic CRUD functions, automatic struct-to-table mapping, and works with both `*sql.DB` and `*sql.Tx` via the Executor interface.
+> Lightweight Go database library for PostgreSQL, MySQL, SQLite, and DuckDB. Provides generic CRUD functions, automatic struct-to-table mapping, named query parameters, and works with both `*sql.DB` and `*sql.Tx` via the Executor interface. Custom drivers are supported through the Driver interface.
 
 ## Installation
 
@@ -25,8 +25,15 @@ type User struct {
 }
 
 func init() {
-    lit.RegisterModel[User](lit.PostgreSQL)  // or lit.MySQL
+    lit.RegisterModel[User](lit.PostgreSQL)  // or lit.MySQL, lit.SQLite, lit.DuckDB
 }
+```
+
+Alternatively, set a default driver once and omit the argument:
+
+```go
+lit.RegisterDriver(lit.PostgreSQL)
+lit.RegisterModel[User]()  // uses the default driver
 ```
 
 ### Naming Conventions
@@ -91,7 +98,8 @@ type Executor interface {
 
 ### Registration Functions
 
-- `RegisterModel[T any](driver Driver)`: Register a model with default CamelCase to snake_case naming
+- `RegisterModel[T any](driver ...Driver)`: Register a model with default CamelCase to snake_case naming. The driver may be omitted after `RegisterDriver` has set a default.
+- `RegisterDriver(driver Driver)`: Set the default driver used when `RegisterModel` is called without one
 - `RegisterModelWithNaming[T any](driver Driver, namingStrategy DbNamingStrategy)`: Register a model with custom naming strategy
 
 ### CRUD Operations
@@ -127,6 +135,8 @@ The parser correctly handles:
 - Repeated parameters (each occurrence gets its own positional placeholder)
 - Missing parameters return an error without executing the query
 
+Note: named parameters cannot expand slices for IN lists. Use `JoinForIn` (int lists, inlined literals, guard against empty slices) or `JoinStringForIn` (placeholder lists) instead.
+
 ### Helper Functions
 
 - `JoinForIn(ids []int) string`: Convert int slice to comma-separated string for IN clauses. Example: `[]int{1,2,3}` -> `"1,2,3"`
@@ -142,6 +152,7 @@ The parser correctly handles:
 - `lit.PostgreSQL`: PostgreSQL driver constant
 - `lit.MySQL`: MySQL driver constant
 - `lit.SQLite`: SQLite driver constant
+- `lit.DuckDB`: DuckDB driver constant
 
 ## Database Driver Differences
 
@@ -155,7 +166,17 @@ The parser correctly handles:
 - ID retrieval: Uses `LastInsertId()` from result
 - Reserved keyword escaping: Backticks (`` `keyword` ``)
 
-Both drivers automatically escape SQL reserved keywords in table and column names.
+### SQLite
+- Placeholders: `?`
+- ID retrieval: Uses `LastInsertId()` from result
+- Reserved keyword escaping: Double quotes (`"keyword"`)
+
+### DuckDB
+- Placeholders: `?`
+- ID retrieval: Uses `RETURNING id` clause (the Go driver has no `LastInsertId()`), so auto-increment `id` columns must be sequence-backed (`DEFAULT nextval(...)`)
+- Reserved keyword escaping: Double quotes (`"keyword"`)
+
+All drivers automatically escape SQL reserved keywords in table and column names. Custom databases can be supported by implementing the `Driver` interface and registering models against it.
 
 ## Usage Examples
 
@@ -277,7 +298,10 @@ myPlaceholders := lit.JoinStringForInWithDriver(lit.MySQL, 0, 3)      // "?,?,?"
 
 - Tables must have an `id` column for Insert and Update operations
 - Models must be registered before use with generic functions
-- PostgreSQL uses `$1, $2` placeholders; MySQL uses `?` placeholders
+- PostgreSQL uses `$1, $2` placeholders; MySQL, SQLite, and DuckDB use `?` placeholders
+- `Insert` writes every struct field, overriding database column defaults, so set fields like `CreatedAt` explicitly
+- Not found returns `nil`, never `sql.ErrNoRows`
+- `Update`'s where parameter is the bare condition (no `WHERE` keyword), with placeholders starting at `$1`; lit renumbers them past the SET columns
 
 ## Documentation
 
