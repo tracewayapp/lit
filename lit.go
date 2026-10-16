@@ -51,6 +51,9 @@ type DbNamingStrategy interface {
 type DefaultDbNamingStrategy struct{}
 
 func (d DefaultDbNamingStrategy) GetTableNameFromStructName(input string) string {
+	if input[len(input)-1] == 's' {
+		return toSnakeCase(input) + "es"
+	}
 	return toSnakeCase(input) + "s"
 }
 

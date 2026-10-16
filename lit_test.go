@@ -71,6 +71,7 @@ func TestDefaultDbNamingStrategy_GetTableNameFromStructName(t *testing.T) {
 		{"SimpleHTTP", "simple_https"},
 		{"ID", "ids"},
 		{"APIKey", "api_keys"},
+		{"Class", "classes"},
 	}
 
 	for _, tt := range tests {
@@ -2531,10 +2532,12 @@ func (d *mockDriver) InsertAndGetId(ex Executor, query string, args ...any) (int
 	return int(id), nil
 }
 
-func (d *mockDriver) Placeholder(argIndex int) string              { return "?" }
-func (d *mockDriver) SupportsBackslashEscape() bool                { return false }
-func (d *mockDriver) RenumberWhereClause(w string, o int) string   { return w }
-func (d *mockDriver) JoinStringForIn(offset int, count int) string { return mysqlJoinStringForIn(count) }
+func (d *mockDriver) Placeholder(argIndex int) string            { return "?" }
+func (d *mockDriver) SupportsBackslashEscape() bool              { return false }
+func (d *mockDriver) RenumberWhereClause(w string, o int) string { return w }
+func (d *mockDriver) JoinStringForIn(offset int, count int) string {
+	return mysqlJoinStringForIn(count)
+}
 
 func TestCustomDriver_RegisterAndInsert(t *testing.T) {
 	type CustomUser struct {
